@@ -14,4 +14,5 @@ namespace offsets
 	DWORD componenttoworld = 0x123;
 	DWORD bonearray = 0x123;
 	DWORD currentactormesh = 0x123;
+	DWORD rootcomp = 0x123;
 }
