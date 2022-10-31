@@ -14,6 +14,7 @@ DWORD PlayerController;
 DWORD Persistentlevel;
 DWORD ActorCount;
 DWORD AActors;
+DWORD RootComp;
 int localplayerID;
 static int hitbox; // need ids possible : 66 head | 65 neck | 7 chest | 2 pelvis
 int Width; // get it your way
@@ -49,6 +50,7 @@ void Cache()
         Persistentlevel = read<DWORD>(Uworld + offsets::persistentlevel);
         ActorCount = read<DWORD>(Persistentlevel + offsets::actorcount);
         AActors = read<DWORD>(Persistentlevel + offsets::aactors);
+        RootComp = read<DWORD>(LocalPawn + offsets::rootcomp);
 
         if (LocalPawn != 0) {
             localplayerID = read<int>(LocalPawn + 0x18);
@@ -172,10 +174,92 @@ struct FTransform
         return m;
     }
 };
+#define M_PI 3.14159265358979323846264338327950288419716939937510
+D3DMATRIX Matrix(Vector3 rot, Vector3 origin = Vector3(0, 0, 0))
+{
+    float radPitch = (rot.x * float(M_PI) / 180.f);
+    float radYaw = (rot.y * float(M_PI) / 180.f);
+    float radRoll = (rot.z * float(M_PI) / 180.f);
+
+    float SP = sinf(radPitch);
+    float CP = cosf(radPitch);
+    float SY = sinf(radYaw);
+    float CY = cosf(radYaw);
+    float SR = sinf(radRoll);
+    float CR = cosf(radRoll);
+
+    D3DMATRIX matrix;
+    matrix.m[0][0] = CP * CY;
+    matrix.m[0][1] = CP * SY;
+    matrix.m[0][2] = SP;
+    matrix.m[0][3] = 0.f;
+
+    matrix.m[1][0] = SR * SP * CY - CR * SY;
+    matrix.m[1][1] = SR * SP * SY + CR * CY;
+    matrix.m[1][2] = -SR * CP;
+    matrix.m[1][3] = 0.f;
+
+    matrix.m[2][0] = -(CR * SP * CY + SR * SY);
+    matrix.m[2][1] = CY * SR - CR * SP * SY;
+    matrix.m[2][2] = CR * CP;
+    matrix.m[2][3] = 0.f;
+
+    matrix.m[3][0] = origin.x;
+    matrix.m[3][1] = origin.y;
+    matrix.m[3][2] = origin.z;
+    matrix.m[3][3] = 1.f;
+
+    return matrix;
+}
+
 Vector3 ProjectWorldToScreen(Vector3 WorldLocation)
 {
-    //find one on github varies on different games
-    return Vector3(1,2,3);
+    Vector3 Screenlocation = Vector3(0, 0, 0);
+    Vector3 Camera;
+
+    auto chain69 = read<uintptr_t>(Localplayer + 0xa8);
+    uint64_t chain699 = read<uintptr_t>(chain69 + 8);
+
+    Camera.x = read<float>(chain699 + 0x7F8);
+    Camera.y = read<float>(RootComp + 0x12C);
+
+    float test = asin(Camera.x);
+    float degrees = test * (180.0 / M_PI);
+    Camera.x = degrees;
+
+    if (Camera.y < 0)
+        Camera.y = 360 + Camera.y;
+
+    D3DMATRIX tempMatrix = Matrix(Camera);
+    Vector3 vAxisX, vAxisY, vAxisZ;
+
+    vAxisX = Vector3(tempMatrix.m[0][0], tempMatrix.m[0][1], tempMatrix.m[0][2]);
+    vAxisY = Vector3(tempMatrix.m[1][0], tempMatrix.m[1][1], tempMatrix.m[1][2]);
+    vAxisZ = Vector3(tempMatrix.m[2][0], tempMatrix.m[2][1], tempMatrix.m[2][2]);
+
+
+
+    uint64_t chain = read<uint64_t>(Localplayer + 0x70);
+    uint64_t chain1 = read<uint64_t>(chain + 0x98);
+    uint64_t chain2 = read<uint64_t>(chain1 + 0x130);
+
+    Vector3 vDelta = WorldLocation - read<Vector3>(chain2 + 0x10);
+    Vector3 vTransformed = Vector3(vDelta.Dot(vAxisY), vDelta.Dot(vAxisZ), vDelta.Dot(vAxisX));
+
+    if (vTransformed.z < 1.f)
+        vTransformed.z = 1.f;
+
+    float zoom = read<float>(chain699 + 0x590);
+
+    float FovAngle = 80.0f / (zoom / 1.19f);
+
+    float ScreenCenterX = Width / 2.0f;
+    float ScreenCenterY = Height / 2.0f;
+
+    Screenlocation.x = ScreenCenterX + vTransformed.x * (ScreenCenterX / tanf(FovAngle * (float)M_PI / 360.f)) / vTransformed.z;
+    Screenlocation.y = ScreenCenterY - vTransformed.y * (ScreenCenterX / tanf(FovAngle * (float)M_PI / 360.f)) / vTransformed.z;
+
+    return Screenlocation;
 }
 D3DMATRIX MatrixMultiplication(D3DMATRIX pM1, D3DMATRIX pM2)
 {
